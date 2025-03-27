@@ -10,8 +10,6 @@ st.title("Synthetic Startup Consultation Team")
 st.write("Ask your question and our team of experts will help you!")
 
 
-
-
 # API Key input
 api_key = st.text_input("Enter your OpenAI API Key:", type="password")
 
