@@ -1,2 +1,2 @@
+plotly
 openai
-openai-agents 
