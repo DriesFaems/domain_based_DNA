@@ -53,7 +53,7 @@ triage_agent = Agent(
 
 async def process_question(api_key: str, question: str):
     # First, let the triage agent determine which experts should handle the question
-    triage_result = await Runner.run(triage_agent, question, {"api_key": api_key})
+    triage_result = await Runner.run(triage_agent, question)
     
     return triage_result
 
