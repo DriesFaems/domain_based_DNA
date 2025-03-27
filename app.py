@@ -1,217 +1,100 @@
 import streamlit as st
-import plotly.graph_objects as go
+import asyncio
+from agents import Agent, Runner
 from openai import OpenAI
-import json
-import pandas as pd
 
-# Page configuration
-st.set_page_config(
-    page_title="Business Domain Analyzer",
-    page_icon="🎯",
-    layout="wide"
+import os
+
+# Define our specialized agents
+technical_expert = Agent(
+    name="Technical Expert",
+    instructions="You are a technical expert specializing in technology, engineering, and scientific matters. Provide detailed technical analysis and solutions.",
+    handoff_description="Specialist for technical and engineering questions"
 )
 
-# Custom CSS
-st.markdown("""
-    <style>
-    .stTextInput > div > div > input {
-        background-color: #f0f2f6;
-    }
-    .explanation-box {
-        background-color: #f0f2f6;
-        padding: 20px;
-        border-radius: 10px;
-        margin: 10px 0;
-    }
-    </style>
-""", unsafe_allow_html=True)
+legal_expert = Agent(
+    name="Legal Expert",
+    instructions="You are a legal expert specializing in law, regulations, and compliance. Provide legal analysis and guidance.",
+    handoff_description="Specialist for legal and regulatory questions"
+)
 
-# Title and description
-st.title("🎯 Domain Based DNA Explorer")
-st.markdown("Analyze your company's performance across different business domains.")
+commercial_expert = Agent(
+    name="Commercial Expert",
+    instructions="You are a commercial expert specializing in business, marketing, and sales. Provide business insights and recommendations.",
+    handoff_description="Specialist for business and commercial questions"
+)
 
-# Sidebar for inputs
-with st.sidebar:
-    st.header("Configuration")
-    api_key = st.text_input("Enter your OpenAI API Key", type="password")
-    company_name = st.text_input("Enter Company Name")
-    analyze_button = st.button("Analyze Company")
+hr_expert = Agent(
+    name="HR Expert",
+    instructions="You are an HR expert specializing in human resources, employee relations, and workplace matters. Provide HR guidance and best practices.",
+    handoff_description="Specialist for HR and workplace questions"
+)
 
-# Sample domains and scoring (replace with actual OpenAI analysis)
-DOMAINS = [
-    "Seamless Mobility: Focused on integrating technology, infrastructure, and services to provide efficient, safe, and convenient transport experiences, including autonomous driving and shared mobility solutions.",
-    "Holistic Wellbeing: Centers on comprehensive approaches to health, combining digital health innovations, alternative medicine, preventive healthcare, elderly care, health literacy, and healing architecture to improve overall quality of life.",
-    "Rest and Relaxation: Targets stress reduction and rejuvenation through wellness offerings such as spa treatments, fitness programs, and immersive travel experiences.",
-    "New Work: Emphasizes flexible, digitally enabled work environments, fostering collaboration, gig economy platforms, remote and hybrid working models, and transformative HR practices.",
-    "Personal Wealth and Legal: Deals with managing personal finances, investments, real estate, and legal affairs through innovative digital tools, open banking, decentralized finance, and professional services.",
-    "Customized and Fast Demand Fulfillment: Optimizes consumer access to products and services, leveraging innovative retail solutions, e-commerce, everyday outsourcing, and the sharing economy to quickly satisfy consumer needs.",
-    "Belief and Mindfulness: Encourages mental and emotional well-being through spiritual, religious, and mindfulness practices, including meditation, yoga, coaching, and esoteric approaches.",
-    "Relationships: Fosters interpersonal and professional connections through social networks, digital communication, matchmaking, dating services, and networking events.",
-    "Adaptive Development: Supports continuous personal and professional growth via structured education systems, lifelong learning opportunities, and scientific research initiatives.",
-    "Personalized Pleasure: Offers customized entertainment experiences, including digital media streaming, gaming, arts, and sports events, tailored to individual preferences.",
-    "Smart Environment: Integrates digital technologies into homes and cities to enhance living conditions, safety, sustainability, and efficiency through smart homes, DIY improvements, and smart city initiatives.",
-    "Security: Provides comprehensive protection through robust defense, law enforcement, identity management, cybersecurity, justice systems, and privacy protection services.",
-    "Infrastructure: Builds foundational digital and physical systems necessary for modern society, including smart energy grids, logistics, telecommunications, e-government, financial transactions, and intelligent building construction.",
-    "B2B-Services: Enables business success through specialized services like accounting, B2B banking and insurance, business administration, consulting, and legal support.",
-    "Industrie 4.0: Transforms manufacturing and production through digital technologies such as IoT, AI, robotics, predictive maintenance, and 3D printing, allowing greater efficiency and customization."]
+# Define the triage agent
+triage_agent = Agent(
+    name="Triage Agent",
+    instructions="""You are a triage agent responsible for determining which specialized agents should handle the user's question.
+    Analyze the question and determine which experts should be involved. You can select multiple experts if needed.
+    Respond with a JSON containing the names of the experts who should handle the question and a brief explanation of why.""",
+    handoffs=[technical_expert, legal_expert, commercial_expert, hr_expert]
+)
 
+async def process_question(api_key: str, question: str):
+    # First, let the triage agent determine which experts should handle the question
+    triage_result = await Runner.run(triage_agent, question, {"api_key": api_key})
+    
+    # Parse the triage result to determine which experts to use
+    selected_experts = []
+    if "technical" in triage_result.answer.lower():
+        selected_experts.append(technical_expert)
+    if "legal" in triage_result.answer.lower():
+        selected_experts.append(legal_expert)
+    if "commercial" in triage_result.answer.lower():
+        selected_experts.append(commercial_expert)
+    if "hr" in triage_result.answer.lower():
+        selected_experts.append(hr_expert)
+    
+    # Get responses from all selected experts
+    expert_responses = []
+    for expert in selected_experts:
+        response = await Runner.run(expert, question, {"api_key": api_key})
+        expert_responses.append({
+            "expert": expert.name,
+            "response": response.answer
+        })
+    
+    return expert_responses
 
-def get_company_analysis(api_key, company_name):
-    """
-    Get company analysis using OpenAI API
-    """
-    if not api_key or not company_name:
-        return None
-    
-    client = OpenAI(api_key=api_key)
-    
-    prompt = f"""You are a business analyst expert. Please analyze {company_name} across these business domains and provide a JSON response.
-    
-    For each of these domains, provide a score (0-10) and detailed explanation:
-    {', '.join([domain.split(':')[0] for domain in DOMAINS])}
-    
-    Your response must be a valid JSON object with this exact structure (no additional text before or after):
-    {{
-        "Seamless Mobility": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Holistic Wellbeing": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Rest and Relaxation": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "New Work": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Personal Wealth and Legal": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Customized and Fast Demand Fulfillment": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Belief and Mindfulness": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Relationships": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Adaptive Development": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Personalized Pleasure": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Smart Environment": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Security": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Infrastructure": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "B2B-Services": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }},
-        "Industrie 4.0": {{
-            "score": 0,
-            "explanation": "detailed explanation"
-        }}
-    }}"""
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7
-        )
-        
-        # Extract the JSON response
-        response_text = response.choices[0].message.content.strip()
-        return json.loads(response_text)
-    except json.JSONDecodeError as e:
-        st.error(f"Error parsing JSON response: {str(e)}")
-        return None
-    except Exception as e:
-        st.error(f"Error in API call: {str(e)}")
-        return None
+def main():
+    st.title("Synthetic Startup Consultation Team")
+    st.write("Ask your question and our team of experts will help you!")
 
-def create_radar_chart(data):
-    """Create a radar chart using plotly"""
-    fig = go.Figure()
-    
-    # Extract just the domain names before the colon
-    domain_names = [domain.split(':')[0] for domain in DOMAINS]
-    scores = [data[domain.strip()]["score"] for domain in domain_names]
-    
-    fig.add_trace(go.Scatterpolar(
-        r=scores + [scores[0]],
-        theta=domain_names + [domain_names[0]],
-        fill='toself',
-        name=company_name
-    ))
-    
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[0, 10]
-            )
-        ),
-        showlegend=True
-    )
-    
-    return fig
+    # API Key input
+    api_key = st.text_input("Enter your OpenAI API Key:", type="password")
 
-# Main application logic
-if analyze_button and api_key and company_name:
-    with st.spinner("Analyzing company data..."):
-        analysis_results = get_company_analysis(api_key, company_name)
-        
-        if analysis_results:
-            # Display radar chart
-            st.subheader("Domain Performance Overview")
-            fig = create_radar_chart(analysis_results)
-            st.plotly_chart(fig, use_container_width=True)
+    # set the api key
+
+    os.environ["OPENAI_API_KEY"] = api_key
+    
+    # Question input
+    question = st.text_area("Enter your question:")
+    
+    if st.button("Get Expert Advice"):
+        if not api_key:
+            st.error("Please enter your OpenAI API Key")
+            return
+        if not question:
+            st.error("Please enter your question")
+            return
             
-            # Display detailed explanations
-            st.subheader("Detailed Analysis")
+        with st.spinner("Consulting our team of experts..."):
+            # Run the async function
+            responses = asyncio.run(process_question(api_key, question))
             
-            # Create two columns for the detailed analysis
-            cols = st.columns(2)
-            for idx, domain in enumerate(DOMAINS):
-                col = cols[idx % 2]
-                with col:
-                    domain_name = domain.split(':')[0].strip()
-                    score = analysis_results[domain_name]["score"]
-                    explanation = analysis_results[domain_name]["explanation"]
-                    
-                    st.markdown(f"""
-                    <div class="explanation-box">
-                        <h3>{domain}</h3>
-                        <h4>Score: {score}/10</h4>
-                        <p>{explanation}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-elif analyze_button:
-    if not api_key:
-        st.error("Please enter your OpenAI API key.")
-    if not company_name:
-        st.error("Please enter a company name.") 
+            # Display responses
+            for response in responses:
+                with st.expander(f"Response from {response['expert']}"):
+                    st.write(response['response'])
+
+if __name__ == "__main__":
+    main() 
