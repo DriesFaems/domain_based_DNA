@@ -5,6 +5,18 @@ from openai import OpenAI
 
 import os
 
+
+st.title("Synthetic Startup Consultation Team")
+st.write("Ask your question and our team of experts will help you!")
+
+# API Key input
+api_key = st.text_input("Enter your OpenAI API Key:", type="password")
+
+# set the api key
+
+os.environ["OPENAI_API_KEY"] = api_key
+
+
 # Define our specialized agents
 technical_expert = Agent(
     name="Technical Expert",
@@ -43,58 +55,29 @@ async def process_question(api_key: str, question: str):
     # First, let the triage agent determine which experts should handle the question
     triage_result = await Runner.run(triage_agent, question, {"api_key": api_key})
     
-    # Parse the triage result to determine which experts to use
-    selected_experts = []
-    if "technical" in triage_result.answer.lower():
-        selected_experts.append(technical_expert)
-    if "legal" in triage_result.answer.lower():
-        selected_experts.append(legal_expert)
-    if "commercial" in triage_result.answer.lower():
-        selected_experts.append(commercial_expert)
-    if "hr" in triage_result.answer.lower():
-        selected_experts.append(hr_expert)
-    
-    # Get responses from all selected experts
-    expert_responses = []
-    for expert in selected_experts:
-        response = await Runner.run(expert, question, {"api_key": api_key})
-        expert_responses.append({
-            "expert": expert.name,
-            "response": response.answer
-        })
-    
-    return expert_responses
+    return triage_result
 
-def main():
-    st.title("Synthetic Startup Consultation Team")
-    st.write("Ask your question and our team of experts will help you!")
 
-    # API Key input
-    api_key = st.text_input("Enter your OpenAI API Key:", type="password")
+# Question input
+question = st.text_area("Enter your question:")
 
-    # set the api key
+def handle_button_click():
+    if not api_key:
+        st.error("Please enter your OpenAI API Key")
+        return
+    if not question:
+        st.error("Please enter your question")
+        return
+        
+    with st.spinner("Consulting our team of experts..."):
+        # Run the async function
+        responses = asyncio.run(process_question(api_key, question))
+        
+        # Display responses
+        for response in responses:
+            with st.expander(f"Response from {response['expert']}"):
+                st.write(response['response'])
 
-    os.environ["OPENAI_API_KEY"] = api_key
-    
-    # Question input
-    question = st.text_area("Enter your question:")
-    
-    if st.button("Get Expert Advice"):
-        if not api_key:
-            st.error("Please enter your OpenAI API Key")
-            return
-        if not question:
-            st.error("Please enter your question")
-            return
-            
-        with st.spinner("Consulting our team of experts..."):
-            # Run the async function
-            responses = asyncio.run(process_question(api_key, question))
-            
-            # Display responses
-            for response in responses:
-                with st.expander(f"Response from {response['expert']}"):
-                    st.write(response['response'])
+if st.button("Get Expert Advice"):
+    handle_button_click()
 
-if __name__ == "__main__":
-    main() 
